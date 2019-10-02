@@ -138,13 +138,9 @@ static char uv_tty_default_fg_bright = 0;
 static char uv_tty_default_bg_bright = 0;
 static char uv_tty_default_inverse = 0;
 
-typedef enum {
-  UV_SUPPORTED,
-  UV_UNCHECKED,
-  UV_UNSUPPORTED
-} uv_vtermstate_t;
 /* Determine whether or not ANSI support is enabled. */
-static uv_vtermstate_t uv__vterm_state = UV_UNCHECKED;
+static BOOL uv__need_check_vterm_state = TRUE;
+static uv_tty_vtermstate_t uv__vterm_state = UV_TTY_UNSUPPORTED;
 static void uv__determine_vterm_state(HANDLE handle);
 
 void uv_console_init(void) {
@@ -194,7 +190,7 @@ int uv_tty_init(uv_loop_t* loop, uv_tty_t* tty, uv_os_fd_t handle, int unused) {
      * between all uv_tty_t handles. */
     uv_sem_wait(&uv_tty_output_lock);
 
-    if (uv__vterm_state == UV_UNCHECKED)
+    if (uv__need_check_vterm_state)
       uv__determine_vterm_state(handle);
 
     /* Remember the original console text attributes. */
@@ -1637,7 +1633,7 @@ static int uv_tty_write_bufs(uv_tty_t* handle,
     uv_buf_t buf = bufs[i];
     unsigned int j;
 
-    if (uv__vterm_state == UV_SUPPORTED && buf.len > 0) {
+    if (uv__vterm_state == UV_TTY_SUPPORTED && buf.len > 0) {
       utf16_buf_used = MultiByteToWideChar(CP_UTF8,
                                            0,
                                            buf.base,
@@ -2236,18 +2232,17 @@ int uv_tty_reset_mode(void) {
 static void uv__determine_vterm_state(HANDLE handle) {
   DWORD dwMode = 0;
 
+  uv__need_check_vterm_state = FALSE;
   if (!GetConsoleMode(handle, &dwMode)) {
-    uv__vterm_state = UV_UNSUPPORTED;
     return;
   }
 
   dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
   if (!SetConsoleMode(handle, dwMode)) {
-    uv__vterm_state = UV_UNSUPPORTED;
     return;
   }
 
-  uv__vterm_state = UV_SUPPORTED;
+  uv__vterm_state = UV_TTY_SUPPORTED;
 }
 
 static DWORD WINAPI uv__tty_console_resize_message_loop_thread(void* param) {
@@ -2300,4 +2295,18 @@ static void CALLBACK uv__tty_console_resize_event(HWINEVENTHOOK hWinEventHook,
     uv__tty_console_height = height;
     uv__signal_dispatch(SIGWINCH);
   }
+}
+
+void uv_tty_set_vterm_state(uv_tty_vtermstate_t state) {
+  uv_sem_wait(&uv_tty_output_lock);
+  uv__need_check_vterm_state = FALSE;
+  uv__vterm_state = state;
+  uv_sem_post(&uv_tty_output_lock);
+}
+
+int uv_tty_get_vterm_state(uv_tty_vtermstate_t* state) {
+  uv_sem_wait(&uv_tty_output_lock);
+  *state = uv__vterm_state;
+  uv_sem_post(&uv_tty_output_lock);
+  return 0;
 }
