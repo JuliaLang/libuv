@@ -1252,7 +1252,7 @@ static int uv__fs_stat(const char *path, uv_stat_t *buf) {
   int ret;
 
   ret = uv__fs_statx(-1, path, /* is_fstat */ 0, /* is_lstat */ 0, buf);
-  if (ret != UV_ENOSYS)
+  if (ret != UV_ENOSYS && ret != UV_EPERM && ret != UV_EACCES)
     return ret;
 
   ret = stat(path, &pbuf);
@@ -1268,7 +1268,7 @@ static int uv__fs_lstat(const char *path, uv_stat_t *buf) {
   int ret;
 
   ret = uv__fs_statx(-1, path, /* is_fstat */ 0, /* is_lstat */ 1, buf);
-  if (ret != UV_ENOSYS)
+  if (ret != UV_ENOSYS && ret != UV_EPERM && ret != UV_EACCES)
     return ret;
 
   ret = lstat(path, &pbuf);
@@ -1284,7 +1284,7 @@ static int uv__fs_fstat(int fd, uv_stat_t *buf) {
   int ret;
 
   ret = uv__fs_statx(fd, "", /* is_fstat */ 1, /* is_lstat */ 0, buf);
-  if (ret != UV_ENOSYS)
+  if (ret != UV_ENOSYS && ret != UV_EPERM && ret != UV_EACCES)
     return ret;
 
   ret = fstat(fd, &pbuf);
