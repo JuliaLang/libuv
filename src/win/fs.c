@@ -1798,7 +1798,7 @@ static void build_access_struct(EXPLICIT_ACCESS_W* ea, PSID owner,
   }
 
   if (mode_triplet & 0x4) {
-    ea->grfAccessPermissions |= FILE_GENERIC_READ | FILE_TRAVERSE | FILE_WRITE_ATTRIBUTES;
+    ea->grfAccessPermissions |= FILE_GENERIC_READ | FILE_WRITE_ATTRIBUTES;
   }
 }
 
