@@ -2406,7 +2406,8 @@ static void fs__chmod(uv_fs_t* req) {
     /* Skip this EA if it isn't an SID, or it is "Everyone" or our actual group */
     if (pOldEAs[ea_idx].Trustee.TrusteeForm != TRUSTEE_IS_SID ||
         EqualSid(pEASid, psidEveryone) ||
-        EqualSid(pEASid, psidGroup)) {
+        EqualSid(pEASid, psidGroup) ||
+        EqualSid(pEASid, psidOwner)) {
       continue;
     }
 
@@ -2423,11 +2424,22 @@ static void fs__chmod(uv_fs_t* req) {
   }
 
   /* Create an ACE for each triplet (user, group, other) */
-  numNewEAs = 8 + 3*numOtherGroups;
+  numNewEAs = 7 + 3*numOtherGroups;
   ea = (PEXPLICIT_ACCESS_W) malloc(sizeof(EXPLICIT_ACCESS_W)*numNewEAs);
   u_mode = ((req->fs.info.mode & S_IRWXU) >> 6);
   g_mode = ((req->fs.info.mode & S_IRWXG) >> 3);
-  o_mode = ((req->fs.info.mode & S_IRWXO) >> 0);
+
+  /*
+   * Because we do not control the ordering of ACE entries within the ACL that
+   * we're building, the `SetNamedSecurityInfoW()` function call below will
+   * place all DENY entries first, and all `ALLOW` entries second.  This
+   * makes it impossible to support e.g. 0o757 permissions, because in order
+   * to support an "allow" for "other", then a "deny" for "group", we are
+   * unable to have an "allow" before the "deny" for "group".  To address this,
+   * we simply do not allow the "other" entity to have permissions that "group"
+   * itself does not have.
+   */
+  o_mode = ((req->fs.info.mode & S_IRWXO) >> 0) & g_mode;
 
   /* We start by revoking previous permissions for trustees we care about */
   build_access_struct(&ea[0], psidOwner,    TRUSTEE_IS_USER,  0, REVOKE_ACCESS);
@@ -2435,31 +2447,29 @@ static void fs__chmod(uv_fs_t* req) {
   build_access_struct(&ea[2], psidEveryone, TRUSTEE_IS_GROUP, 0, REVOKE_ACCESS);
 
   /*
-   * We also add explicit denies to user and group if the user shouldn't have
-   * a permission but the group or everyone can, for instance.
+   * We also add explicit denies to user if the group shouldn't have a permission.
    */
-  u_deny_mode = (~u_mode) & (g_mode | o_mode);
-  g_deny_mode = (~g_mode) & o_mode;
+  u_deny_mode = (~u_mode) & (g_mode);
   build_access_struct(&ea[3], psidOwner, TRUSTEE_IS_USER,  u_deny_mode, DENY_ACCESS);
-  build_access_struct(&ea[4], psidGroup, TRUSTEE_IS_GROUP, g_deny_mode, DENY_ACCESS);
 
   /* Next, add explicit allows for (owner, group, other) */
-  build_access_struct(&ea[5], psidOwner,    TRUSTEE_IS_USER,  u_mode, SET_ACCESS);
-  build_access_struct(&ea[6], psidGroup,    TRUSTEE_IS_GROUP, g_mode, SET_ACCESS);
-  build_access_struct(&ea[7], psidEveryone, TRUSTEE_IS_GROUP, o_mode, SET_ACCESS);
+  build_access_struct(&ea[4], psidOwner,    TRUSTEE_IS_USER,  u_mode, SET_ACCESS);
+  build_access_struct(&ea[5], psidGroup,    TRUSTEE_IS_GROUP, g_mode, SET_ACCESS);
+  build_access_struct(&ea[6], psidEveryone, TRUSTEE_IS_GROUP, o_mode, SET_ACCESS);
 
   /*
    * Iterate over all old ACEs, looking for groups that we belong to, and setting
    * the appropriate access bits for those groups (as g_mode)
    */
-  ea_write_idx = 8;
+  ea_write_idx = 7;
   for (ea_idx=0; ea_idx<numOldEAs; ++ea_idx) {
     BOOL isMember = FALSE;
     PSID pEASid = (PSID)pOldEAs[ea_idx].Trustee.ptstrName;
     /* Skip this EA if it isn't an SID, or it is "Everyone" or our actual group */
     if (pOldEAs[ea_idx].Trustee.TrusteeForm != TRUSTEE_IS_SID ||
         EqualSid(pEASid, psidEveryone) ||
-        EqualSid(pEASid, psidGroup)) {
+        EqualSid(pEASid, psidGroup) ||
+        EqualSid(pEASid, psidOwner)) {
       continue;
     }
 
