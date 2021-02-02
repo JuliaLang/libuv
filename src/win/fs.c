@@ -1237,7 +1237,7 @@ void fs__mktemp(uv_fs_t* req, uv__fs_mktemp_func func) {
   size_t len;
   uint64_t v;
   char* path;
-  
+
   path = req->path;
   len = wcslen(req->file.pathw);
   ep = req->file.pathw + len;
@@ -2790,12 +2790,6 @@ static void fs__create_junction(uv_fs_t* req, const WCHAR* path,
       path[1] == L':' && IS_SLASH(path[2]);
   }
 
-  if (!is_absolute) {
-    /* Not supporting relative paths */
-    SET_REQ_UV_ERROR(req, UV_EINVAL, ERROR_NOT_SUPPORTED);
-    return;
-  }
-
   /* Do a pessimistic calculation of the required buffer size */
   needed_buf_size =
       FIELD_OFFSET(REPARSE_DATA_BUFFER, MountPointReparseBuffer.PathBuffer) +
@@ -2839,6 +2833,11 @@ static void fs__create_junction(uv_fs_t* req, const WCHAR* path,
   /* Set the info about the substitute name */
   buffer->MountPointReparseBuffer.SubstituteNameOffset = start * sizeof(WCHAR);
   buffer->MountPointReparseBuffer.SubstituteNameLength = len * sizeof(WCHAR);
+
+  /* Set whether the symlink is relative */
+  if (!is_absolute) {
+    buffer->SymbolicLinkReparseBuffer.Flags = SYMLINK_FLAG_RELATIVE;
+  }
 
   /* Insert null terminator */
   path_buf[path_buf_len++] = L'\0';
