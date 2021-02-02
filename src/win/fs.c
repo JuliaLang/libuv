@@ -44,6 +44,10 @@
 #define UV_FS_FREE_PTR           0x0008
 #define UV_FS_CLEANEDUP          0x0010
 
+#ifndef SYMLINK_FLAG_RELATIVE
+#define SYMLINK_FLAG_RELATIVE 0x01
+#endif
+
 /* number of attempts to generate a unique directory name before declaring failure */
 #define TMP_MAX 32767
 
@@ -2834,11 +2838,6 @@ static void fs__create_junction(uv_fs_t* req, const WCHAR* path,
   buffer->MountPointReparseBuffer.SubstituteNameOffset = start * sizeof(WCHAR);
   buffer->MountPointReparseBuffer.SubstituteNameLength = len * sizeof(WCHAR);
 
-  /* Set whether the symlink is relative */
-  if (!is_absolute) {
-    buffer->SymbolicLinkReparseBuffer.Flags = SYMLINK_FLAG_RELATIVE;
-  }
-
   /* Insert null terminator */
   path_buf[path_buf_len++] = L'\0';
 
@@ -2871,15 +2870,34 @@ static void fs__create_junction(uv_fs_t* req, const WCHAR* path,
   /* Insert another null terminator */
   path_buf[path_buf_len++] = L'\0';
 
-  /* Calculate how much buffer space was actually used */
-  used_buf_size = FIELD_OFFSET(REPARSE_DATA_BUFFER, MountPointReparseBuffer.PathBuffer) +
-    path_buf_len * sizeof(WCHAR);
-  used_data_size = used_buf_size -
-    FIELD_OFFSET(REPARSE_DATA_BUFFER, MountPointReparseBuffer);
+  if (is_absolute) {
+    /* Calculate how much buffer space was actually used */
+    used_buf_size = FIELD_OFFSET(REPARSE_DATA_BUFFER, MountPointReparseBuffer.PathBuffer) +
+      path_buf_len * sizeof(WCHAR);
+    used_data_size = used_buf_size -
+      FIELD_OFFSET(REPARSE_DATA_BUFFER, MountPointReparseBuffer);
 
-  /* Put general info in the data buffer */
-  buffer->ReparseTag = IO_REPARSE_TAG_MOUNT_POINT;
-  buffer->ReparseDataLength = used_data_size;
+    /* Put general info in the data buffer */
+    buffer->ReparseTag = IO_REPARSE_TAG_MOUNT_POINT;
+    buffer->ReparseDataLength = used_data_size;
+  } else {
+    /* If the path is relative, flag and switch to SymbolicLinkReparseBuffer */
+    buffer->SymbolicLinkReparseBuffer.Flags = SYMLINK_FLAG_RELATIVE;
+    memcpy(buffer->SymbolicLinkReparseBuffer.PathBuffer, buffer->MountPointReparseBuffer.PathBuffer, len);
+    buffer->SymbolicLinkReparseBuffer.SubstituteNameOffset = buffer->MountPointReparseBuffer.SubstituteNameOffset;
+    buffer->SymbolicLinkReparseBuffer.SubstituteNameLength = buffer->MountPointReparseBuffer.SubstituteNameLength;
+    buffer->SymbolicLinkReparseBuffer.PrintNameOffset = buffer->MountPointReparseBuffer.PrintNameOffset;
+	  buffer->SymbolicLinkReparseBuffer.PrintNameLength = buffer->MountPointReparseBuffer.PrintNameLength;
+
+    /* Calculate how much buffer space was actually used */
+    used_buf_size = FIELD_OFFSET(REPARSE_DATA_BUFFER, SymbolicLinkReparseBuffer.PathBuffer) +
+      path_buf_len * sizeof(WCHAR);
+    used_data_size = used_buf_size - FIELD_OFFSET(REPARSE_DATA_BUFFER, SymbolicLinkReparseBuffer);
+
+    /* Put general info in the data buffer */
+    buffer->ReparseTag = IO_REPARSE_TAG_SYMLINK;
+    buffer->ReparseDataLength = used_data_size;
+  }
   buffer->Reserved = 0;
 
   /* Create a new directory */
