@@ -257,7 +257,7 @@ static const char* uv__spawn_find_path_in_env(char* const* env) {
   return NULL;
 }
 
-
+#ifdef __linux__
 static int uv__execvpe(const char *file, char *const argv[], char *const envp[]) {
   const char *p;
   const char *z;
@@ -352,6 +352,7 @@ static int uv__execvpe(const char *file, char *const argv[], char *const envp[])
     return EACCES;
   return err;
 }
+#endif
 
 
 static void uv__write_int(
