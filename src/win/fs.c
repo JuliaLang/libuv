@@ -2414,16 +2414,8 @@ static void fs__chmod(uv_fs_t* req) {
       continue;
     }
 
-    /* Check to see if our user is a member of this group */
-    if (!CheckTokenMembership(hImpersonatedToken, pEASid, &isMember)) {
-      SET_REQ_WIN32_ERROR(req, GetLastError());
-      goto chmod_cleanup;
-    }
-
-    /* If we're a member, then count it */
-    if (isMember) {
-      numOtherGroups++;
-    }
+    /* Count these as "other" groups */
+    numOtherGroups++;
   }
 
   /* Create an ACE for each triplet (user, group, other) */
@@ -2483,16 +2475,21 @@ static void fs__chmod(uv_fs_t* req) {
     }
 
     /*
-     * If we're a member, then count it.  We limit our `ea_write_idx` to avoid
-     * the unlikely event that we have been added to a group since we first
-     * calculated `numOtherGroups`.
+     * We limit our `ea_write_idx` to avoid the unlikely event that we
+     * have been added to a group since we first calculated `numOtherGroups`.
      */
-    if (isMember && ea_write_idx < numNewEAs) {
-      build_access_struct(&ea[ea_write_idx], pEASid, TRUSTEE_IS_GROUP, 0, REVOKE_ACCESS);
+    assert(ea_write_idx <= numNewEAs - 3);
+    if (isMember) {
+      build_access_struct(&ea[ea_write_idx + 0], pEASid, TRUSTEE_IS_GROUP, 0, REVOKE_ACCESS);
       build_access_struct(&ea[ea_write_idx + 1], pEASid, TRUSTEE_IS_GROUP, g_deny_mode, DENY_ACCESS);
       build_access_struct(&ea[ea_write_idx + 2], pEASid, TRUSTEE_IS_GROUP, g_mode, SET_ACCESS);
-      ea_write_idx += 3;
+    } else {
+      /* We revoke a second time here to keep offset management simple in groups of three. */
+      build_access_struct(&ea[ea_write_idx + 0], pEASid, TRUSTEE_IS_GROUP, 0, REVOKE_ACCESS);
+      build_access_struct(&ea[ea_write_idx + 1], pEASid, TRUSTEE_IS_GROUP, 0, REVOKE_ACCESS);
+      build_access_struct(&ea[ea_write_idx + 2], pEASid, TRUSTEE_IS_GROUP, o_mode, SET_ACCESS);
     }
+    ea_write_idx += 3;
   }
 
   /* Set entries in the ACL object */
