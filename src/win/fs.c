@@ -2351,7 +2351,7 @@ static void fs__chmod(uv_fs_t* req) {
    * We fix it by forcibly clearing some kind of cache by setting the security info with the
    * old DACL, then attempting to read it in again.
    */
-  if (numOldEAs != pOldDACL->AceCount) {
+  if (pOldDACL != NULL && numOldEAs != pOldDACL->AceCount) {
     if (ERROR_SUCCESS != SetNamedSecurityInfoW(
               req->file.pathw,
               SE_FILE_OBJECT,
