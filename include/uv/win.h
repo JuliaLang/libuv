@@ -57,6 +57,7 @@ typedef intptr_t ssize_t;
 /* Signals supported by uv_signal and or uv_kill */
 #define SIGHUP                1
 #define SIGINT                2
+#define SIGQUIT               3
 #define SIGILL                4
 #define SIGABRT_COMPAT        6
 #define SIGFPE                8
