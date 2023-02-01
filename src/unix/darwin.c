@@ -31,6 +31,7 @@
 #include <mach-o/dyld.h> /* _NSGetExecutablePath */
 #include <sys/resource.h>
 #include <sys/sysctl.h>
+#include <sys/types.h>
 #include <unistd.h>  /* sysconf */
 
 static uv_once_t once = UV_ONCE_INIT;
@@ -130,9 +131,19 @@ uint64_t uv_get_constrained_memory(void) {
   return 0;  /* Memory constraints are unknown. */
 }
 
-
 uint64_t uv_get_available_memory(void) {
-  return uv_get_free_memory();
+  vm_statistics64_data_t info;
+  mach_msg_type_number_t count = sizeof(info) / sizeof(integer_t);
+
+  if (host_statistics64(mach_host_self(), HOST_VM_INFO64,
+                      (host_info64_t)&info, &count) != KERN_SUCCESS) {
+    return UV_EINVAL;  /* FIXME(bnoordhuis) Translate error. */
+  }
+  // Based on https://github.com/exelban/stats/blob/6c991de101957065f579a550ac2ae358d733d0c0/Modules/RAM/readers.swift#L47-L57
+  uint64_t used = info.active_count + info.inactive_count + info.compressor_page_count +info.speculative_count + info.wire_count;
+  uint64_t not_used = info.purgeable_count + info.external_page_count;
+  uint64_t available = uv_get_total_memory() - (used - not_used) * sysconf(_SC_PAGESIZE);
+  return available;
 }
 
 
