@@ -2282,14 +2282,14 @@ static void build_access_struct(EXPLICIT_ACCESS_W* ea, PSID owner,
 
   if (mode_triplet & 0x1) {
     ea->grfAccessPermissions |= STANDARD_RIGHTS_EXECUTE | FILE_READ_ATTRIBUTES | FILE_EXECUTE;
-    if (allow_deny == GRANT_ACCESS) {
+    if (allow_deny == SET_ACCESS) {
       ea->grfAccessPermissions |= SYNCHRONIZE | FILE_WRITE_ATTRIBUTES;
     }
   }
 
   if (mode_triplet & 0x2) {
     ea->grfAccessPermissions |= STANDARD_RIGHTS_WRITE | FILE_WRITE_DATA | FILE_WRITE_EA | FILE_APPEND_DATA | FILE_ADD_SUBDIRECTORY | FILE_DELETE_CHILD | DELETE;
-    if (allow_deny == GRANT_ACCESS) {
+    if (allow_deny == SET_ACCESS) {
       ea->grfAccessPermissions |= SYNCHRONIZE | FILE_WRITE_ATTRIBUTES;
     }
   }
