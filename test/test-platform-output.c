@@ -110,7 +110,8 @@ TEST_IMPL(platform_output) {
   if (cgroup_version == 0) {
     file = fopen("/sys/fs/cgroup/cpu,cpuacct/cpu.cfs_quota_us", "r");
     if (file) {
-      if (fscanf(file, "%lu", &quota) == 1 && quota > 0) {
+      // Reading a negative number into unsigned results in odd logic
+      if (fscanf(file, "%lu", &quota) == 1 && quota < (uint64_t) -1) {
         fclose(file);
         file = fopen("/sys/fs/cgroup/cpu,cpuacct/cpu.cfs_period_us", "r");
         if (file && fscanf(file, "%lu", &period) == 1) {
