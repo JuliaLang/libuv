@@ -326,6 +326,7 @@ typedef void (*uv_read_cb)(uv_stream_t* stream,
                            ssize_t nread,
                            const uv_buf_t* buf);
 typedef void (*uv_write_cb)(uv_write_t* req, int status);
+typedef void (*uv_write3_cb)(uv_write_t* req, int status, size_t nwritten);
 typedef void (*uv_connect_cb)(uv_connect_t* req, int status);
 typedef void (*uv_shutdown_cb)(uv_shutdown_t* req, int status);
 typedef void (*uv_connection_cb)(uv_stream_t* server, int status);
@@ -423,7 +424,7 @@ UV_EXTERN char* uv_err_name_r(int err, char* buf, size_t buflen);
   uv_loop_t* loop;                                                            \
   uv_req_type type;                                                           \
   /* private */                                                               \
-  void* reserved[6];                                                          \
+  void* reserved[4];                                                          \
   UV_REQ_PRIVATE_FIELDS                                                       \
 
 /* Abstract base class of all requests. */
@@ -610,6 +611,13 @@ UV_EXTERN int uv_try_write2(uv_stream_t* handle,
                             const uv_buf_t bufs[],
                             unsigned int nbufs,
                             uv_stream_t* send_handle);
+UV_EXTERN int uv_write3(uv_write_t* req,
+                        uv_stream_t* handle,
+                        const uv_buf_t bufs[],
+                        unsigned int nbufs,
+                        uv_stream_t* send_handle,
+                        unsigned int flags,
+                        uv_write3_cb cb);
 
 /* uv_write_t is a subclass of uv_req_t. */
 struct uv_write_s {

@@ -241,7 +241,14 @@ typedef struct {
 
 #define UV_REQ_TYPE_PRIVATE /* empty */
 
-#define UV_REQ_PRIVATE_FIELDS  /* empty */
+#define UV_REQ_PRIVATE_FIELDS                                                 \
+  union {                                                                     \
+    void* reserved2[2];                                                       \
+    struct {                                                                  \
+      size_t bytes_written;                                                   \
+      unsigned int write_flags;                                               \
+    } write_extra;                                                            \
+  };
 
 #define UV_PRIVATE_REQ_TYPES /* empty */
 
@@ -252,6 +259,10 @@ typedef struct {
   unsigned int nbufs;                                                         \
   int error;                                                                  \
   uv_buf_t bufsml[4];                                                         \
+  union {                                                                     \
+    uv_write_cb cb;                                                           \
+    uv_write3_cb cb3;                                                         \
+  } write_cb;                                                                 \
 
 #define UV_CONNECT_PRIVATE_FIELDS                                             \
   struct uv__queue queue;                                                     \

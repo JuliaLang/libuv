@@ -136,6 +136,11 @@ enum {
   UV_HANDLE_REAP                        = 0x10000000
 };
 
+/* Internal flags for uv_write_t requests */
+enum {
+  UV__WRITE_ALLOW_PARTIAL = 0x1  /* Request allows partial write on cancel */
+};
+
 static inline int uv__is_raw_tty_mode(uv_tty_mode_t m) {
   return m == UV_TTY_MODE_RAW || m == UV_TTY_MODE_RAW_VT;
 }

@@ -388,6 +388,10 @@ int uv_cancel(uv_req_t* req) {
     loop =  ((uv_work_t*) req)->loop;
     wreq = &((uv_work_t*) req)->work_req;
     break;
+#if !defined(_WIN32)
+  case UV_WRITE:
+    return uv__write_cancel((uv_write_t*) req);
+#endif
   default:
     return UV_EINVAL;
   }

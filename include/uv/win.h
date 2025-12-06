@@ -258,13 +258,25 @@ typedef struct {
       WCHAR* name;                                                             \
     } connect;                                                                \
   } u;                                                                        \
-  struct uv_req_s* next_req;
+  struct uv_req_s* next_req;                                                  \
+  /* Extra fields for uv_write_t cancellation support */                      \
+  union {                                                                     \
+    void* reserved2[2];                                                       \
+    struct {                                                                  \
+      size_t bytes_written;                                                   \
+      unsigned int write_flags;                                               \
+    } write_extra;                                                            \
+  };
 
 #define UV_WRITE_PRIVATE_FIELDS \
   int coalesced;                \
   uv_buf_t write_buffer;        \
   HANDLE event_handle;          \
-  HANDLE wait_handle;
+  HANDLE wait_handle;           \
+  union {                       \
+    uv_write_cb cb;             \
+    uv_write3_cb cb3;           \
+  } write_cb;
 
 #define UV_CONNECT_PRIVATE_FIELDS                                             \
   /* empty */

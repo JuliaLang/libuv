@@ -693,6 +693,7 @@ static int uv__write_req_update(uv_stream_t* stream,
 
   assert(n <= stream->write_queue_size);
   stream->write_queue_size -= n;
+  req->write_extra.bytes_written += n;
 
   buf = req->bufs + req->write_index;
 
@@ -733,6 +734,54 @@ static void uv__write_req_finish(uv_write_t* req) {
    */
   uv__queue_insert_tail(&stream->write_completed_queue, &req->queue);
   uv__io_feed(stream->loop, &stream->io_watcher);
+}
+
+
+int uv__write_cancel(uv_write_t* req) {
+  uv_stream_t* stream;
+  size_t remaining;
+
+  stream = req->handle;
+  if (stream == NULL)
+    return UV_EINVAL;
+
+  /* For old API: only cancel if no bytes written yet */
+  if (!(req->write_extra.write_flags & UV__WRITE_ALLOW_PARTIAL)) {
+    if (req->write_extra.bytes_written > 0)
+      return UV_EBUSY;
+  }
+
+  /* Not in queue - already completed, treat as success */
+  if (!uv__queue_contains(&stream->write_queue, &req->queue))
+    return 0;
+
+  /* Calculate remaining bytes before removing from queue. */
+  remaining = uv__count_bufs(req->bufs + req->write_index,
+                             req->nbufs - req->write_index);
+  assert(remaining <= stream->write_queue_size);
+
+  /* Remove from write_queue */
+  uv__queue_remove(&req->queue);
+
+  /* Update write_queue_size with remaining bytes */
+  stream->write_queue_size -= remaining;
+
+  /* Free buffers if needed, and set bufs to NULL.
+   * This prevents uv__write_callbacks from trying to subtract write_queue_size
+   * again and also prevents double-free.
+   */
+  if (req->bufs != req->bufsml)
+    uv__free(req->bufs);
+  req->bufs = NULL;
+
+  /* Set error and move to completed queue */
+  req->error = UV_ECANCELED;
+  uv__queue_insert_tail(&stream->write_completed_queue, &req->queue);
+
+  /* Trigger callback processing */
+  uv__io_feed(stream->loop, &stream->io_watcher);
+
+  return 0;
 }
 
 
@@ -922,8 +971,13 @@ static void uv__write_callbacks(uv_stream_t* stream) {
     }
 
     /* NOTE: call callback AFTER freeing the request data. */
-    if (req->cb)
-      req->cb(req, req->error);
+    if (req->write_extra.write_flags & UV__WRITE_ALLOW_PARTIAL) {
+      if (req->write_cb.cb3 != NULL)
+        req->write_cb.cb3(req, req->error, req->write_extra.bytes_written);
+    } else {
+      if (req->write_cb.cb != NULL)
+        req->write_cb.cb(req, req->error);
+    }
   }
 }
 
@@ -1325,12 +1379,12 @@ static int uv__check_before_write(uv_stream_t* stream,
   return 0;
 }
 
-int uv_write2(uv_write_t* req,
-              uv_stream_t* stream,
-              const uv_buf_t bufs[],
-              unsigned int nbufs,
-              uv_stream_t* send_handle,
-              uv_write_cb cb) {
+static int uv__write_init(uv_write_t* req,
+                          uv_stream_t* stream,
+                          const uv_buf_t bufs[],
+                          unsigned int nbufs,
+                          uv_stream_t* send_handle,
+                          unsigned int write_flags) {
   int empty_queue;
   int err;
 
@@ -1348,7 +1402,8 @@ int uv_write2(uv_write_t* req,
 
   /* Initialize the req */
   uv__req_init(stream->loop, req, UV_WRITE);
-  req->cb = cb;
+  req->write_extra.bytes_written = 0;
+  req->write_extra.write_flags = write_flags;
   req->handle = stream;
   req->error = 0;
   req->send_handle = send_handle;
@@ -1394,6 +1449,21 @@ int uv_write2(uv_write_t* req,
 }
 
 
+int uv_write2(uv_write_t* req,
+              uv_stream_t* stream,
+              const uv_buf_t bufs[],
+              unsigned int nbufs,
+              uv_stream_t* send_handle,
+              uv_write_cb cb) {
+  int err;
+
+  err = uv__write_init(req, stream, bufs, nbufs, send_handle, 0);
+  if (err == 0)
+    req->write_cb.cb = cb;
+
+  return err;
+}
+
 /* The buffers to be written must remain valid until the callback is called.
  * This is not required for the uv_buf_t array.
  */
@@ -1403,6 +1473,26 @@ int uv_write(uv_write_t* req,
              unsigned int nbufs,
              uv_write_cb cb) {
   return uv_write2(req, handle, bufs, nbufs, NULL, cb);
+}
+
+int uv_write3(uv_write_t* req,
+              uv_stream_t* stream,
+              const uv_buf_t bufs[],
+              unsigned int nbufs,
+              uv_stream_t* send_handle,
+              unsigned int flags,
+              uv_write3_cb cb) {
+  int err;
+
+  if (flags != 0)
+    return UV_EINVAL;
+
+  err = uv__write_init(req, stream, bufs, nbufs, send_handle,
+                       UV__WRITE_ALLOW_PARTIAL);
+  if (err == 0)
+    req->write_cb.cb3 = cb;
+
+  return err;
 }
 
 
