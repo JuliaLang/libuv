@@ -659,7 +659,13 @@ static void uv__drain(uv_stream_t* stream) {
 }
 
 
-static ssize_t uv__writev(int fd, struct iovec* vec, size_t n) {
+static ssize_t uv__writev(uv_stream_t *s, struct iovec* vec, size_t n) {
+  uv_os_fd_t fd;
+  fd = uv__stream_fd(s);
+#ifdef __linux__
+  if (s->flags & UV_HANDLE_BLOCKING_WRITES)
+    return pwritev2(fd, vec, n, -1, RWF_NOWAIT);
+#endif
   if (n == 1)
     return write(fd, vec->iov_base, vec->iov_len);
   else
@@ -809,7 +815,7 @@ static int uv__try_write(uv_stream_t* stream,
     while (n == -1 && errno == EINTR);
   } else {
     do
-      n = uv__writev(uv__stream_fd(stream), iov, iovcnt);
+      n = uv__writev(stream, iov, iovcnt);
     while (n == -1 && errno == EINTR);
   }
 
@@ -877,8 +883,10 @@ static void uv__write(uv_stream_t* stream) {
       goto error;
 
     /* If this is a blocking stream, try again. */
+#ifndef __linux__
     if (stream->flags & UV_HANDLE_BLOCKING_WRITES)
       continue;
+#endif
 
     /* We're not done. */
     uv__io_start(stream->loop, &stream->io_watcher, POLLOUT);
@@ -1558,5 +1566,7 @@ int uv_stream_set_blocking(uv_stream_t* handle, int blocking) {
   /* Don't need to check the file descriptor, uv__nonblock()
    * will fail with EBADF if it's not valid.
    */
+  if (blocking)
+    handle->flags |= UV_HANDLE_BLOCKING_WRITES;
   return uv__nonblock(uv__stream_fd(handle), !blocking);
 }

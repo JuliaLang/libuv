@@ -217,15 +217,17 @@ static int uv__process_init_stdio(uv_stdio_container_t* container, int fds[2]) {
       return uv_socketpair(SOCK_STREAM, 0, fds, 0, 0);
 
   case UV_INHERIT_FD:
-  case UV_INHERIT_STREAM:
-    if (container->flags & UV_INHERIT_FD)
-      fd = container->data.file;
-    else
-      fd = uv__stream_fd(container->data.stream);
-
+    fd = container->data.file;
     if (fd == -1)
       return UV_EINVAL;
+    fds[1] = fd;
+    return 0;
 
+  case UV_INHERIT_STREAM:
+    fd = uv__stream_fd(container->data.stream);
+    uv_stream_set_blocking(container->data.stream, 1);
+    if (fd == -1)
+      return UV_EINVAL;
     fds[1] = fd;
     return 0;
 
@@ -511,9 +513,6 @@ static void uv__process_child_init(const uv_process_options_t* options,
 
     if (fd == -1)
       uv__write_errno(error_fd);
-
-    if (fd <= 2 && close_fd == -1)
-      uv__nonblock_fcntl(fd, 0);
 
     if (close_fd >= stdio_count)
       uv__close(close_fd);

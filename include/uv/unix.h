@@ -251,6 +251,7 @@ typedef struct {
   uv_buf_t* bufs;                                                             \
   unsigned int nbufs;                                                         \
   int error;                                                                  \
+  struct uv__work work_req;                                                   \
   uv_buf_t bufsml[4];                                                         \
 
 #define UV_CONNECT_PRIVATE_FIELDS                                             \

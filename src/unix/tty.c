@@ -334,8 +334,10 @@ int uv_tty_set_mode(uv_tty_t* tty, uv_tty_mode_t mode) {
   }
 
   /* Apply changes after draining */
-  rc = uv__tcsetattr(fd, TCSADRAIN, &tmp);
-  if (rc == 0)
+  /*
+   * rc = uv__tcsetattr(fd, TCSADRAIN, &tmp);
+   * if (rc == 0)
+   */
     tty->mode = mode;
 
   return rc;
