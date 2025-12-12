@@ -202,6 +202,7 @@ void uv__wait_children(uv_loop_t* loop) {
 static int uv__process_init_stdio(uv_stdio_container_t* container, int fds[2]) {
   int mask;
   int fd;
+  int ret;
 
   mask = UV_IGNORE | UV_CREATE_PIPE | UV_INHERIT_FD | UV_INHERIT_STREAM;
 
@@ -217,16 +218,24 @@ static int uv__process_init_stdio(uv_stdio_container_t* container, int fds[2]) {
       return uv_socketpair(SOCK_STREAM, 0, fds, 0, 0);
 
   case UV_INHERIT_FD:
+    fd = container->data.file;
+    if (fd == -1)
+      return UV_EINVAL;
+    fds[1] = fd;
+    return 0;
+
   case UV_INHERIT_STREAM:
-    if (container->flags & UV_INHERIT_FD)
-      fd = container->data.file;
-    else
-      fd = uv__stream_fd(container->data.stream);
+    fd = uv__stream_fd(container->data.stream);
 
     if (fd == -1)
       return UV_EINVAL;
-
     fds[1] = fd;
+
+    ret = uv__nonblock(fd, 0);
+    if (ret != 0)
+      return ret;
+    container->data.stream->flags |= UV_HANDLE_BLOCKING_WRITES;
+
     return 0;
 
   default:
@@ -511,9 +520,6 @@ static void uv__process_child_init(const uv_process_options_t* options,
 
     if (fd == -1)
       uv__write_errno(error_fd);
-
-    if (fd <= 2 && close_fd == -1)
-      uv__nonblock_fcntl(fd, 0);
 
     if (close_fd >= stdio_count)
       uv__close(close_fd);
@@ -803,10 +809,6 @@ static int uv__spawn_set_posix_spawn_file_actions(
     assert(err != ENOSYS);
     if (err != 0)
       goto error;
-
-    /* Make sure the fd is marked as non-blocking (state shared between child
-     * and parent). */
-    uv__nonblock_fcntl(use_fd, 0);
   }
 
   /* Finally, close all the superfluous descriptors */
