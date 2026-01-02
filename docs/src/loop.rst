@@ -89,9 +89,13 @@ API
     - UV_LOOP_USE_IO_URING_SQPOLL: Enable SQPOLL io_uring instance to handle
       asynchronous file system operations.
 
+    - UV_LOOP_CANCEL_SIGNAL: TODO
+
     .. versionchanged:: 1.39.0 added the UV_METRICS_IDLE_TIME option.
 
     .. versionchanged:: 1.49.0 added the UV_LOOP_USE_IO_URING_SQPOLL option.
+
+    .. versionchanged:: TODO added the UV_LOOP_CANCEL_SIGNAL option.
 
 .. c:function:: int uv_loop_close(uv_loop_t* loop)
 

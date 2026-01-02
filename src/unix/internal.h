@@ -589,4 +589,18 @@ int uv__get_constrained_cpu(long long* quota);
 #define UV__KQUEUE_EVFILT_USER 0
 #endif
 
+static inline int uv__work_check_cancelled(struct uv__work* w) {
+  char expected;
+
+  if (w == NULL)
+    return 0;
+
+  expected = UV__WORK_CANCEL_PENDING;
+  return atomic_compare_exchange_strong_explicit(&w->state,
+                                                 &expected,
+                                                 UV__WORK_CANCELLED,
+                                                 memory_order_relaxed,
+                                                 memory_order_relaxed);
+}
+
 #endif /* UV_UNIX_INTERNAL_H_ */
