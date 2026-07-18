@@ -90,8 +90,6 @@ static void fail_cb(uv_process_t* process,
 static void kill_cb(uv_process_t* process,
                     int64_t exit_status,
                     int term_signal) {
-  int err;
-
   printf("exit_cb\n");
   exit_cb_called++;
 #ifdef _WIN32
@@ -111,12 +109,9 @@ static void kill_cb(uv_process_t* process,
 #endif
   uv_close((uv_handle_t*) process, close_cb);
 
-  /*
-   * This process should be dead.
-   */
-  ASSERT_NE(process->pid, 0);
-  err = uv_kill(process->pid, 0);
-  ASSERT_EQ(err, UV_ESRCH);
+  /* This process has already been reaped, which cleared the pid: it can no
+   * longer be addressed by it (the pid may already have been reused). */
+  ASSERT_EQ(process->pid, 0);
 }
 
 static void detach_failure_cb(uv_process_t* process,
