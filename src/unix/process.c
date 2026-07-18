@@ -355,22 +355,26 @@ static int uv__execvpe(const char *file, char *const argv[], char *const envp[])
 #endif
 
 
-static void uv__write_int(
-#ifdef __linux__
-                            volatile int* fd,
-#else
-                            int fd,
-#endif
-                            int val) {
-#ifdef __linux__
-  *fd = val;
-#else
+/* Channel over which a spawned child reports an exec (or setup) failure back
+ * to the parent. When `addr` is non-NULL the child simply stores through it,
+ * which requires the child to share the parent's address space (Linux vfork).
+ * Otherwise the child writes to the `fd` end of a close-on-exec pipe. */
+typedef struct {
+  volatile int* addr;
+  int fd;
+} uv__spawn_errchan_t;
+
+
+static void uv__write_int(uv__spawn_errchan_t errchan, int val) {
   ssize_t n;
 
-  do
-    n = write(fd, &val, sizeof(val));
-  while (n == -1 && errno == EINTR);
-#endif
+  if (errchan.addr != NULL) {
+    *errchan.addr = val;
+  } else {
+    do
+      n = write(errchan.fd, &val, sizeof(val));
+    while (n == -1 && errno == EINTR);
+  }
 
   /* The write might have failed (e.g. if the parent process has died),
    * but we have nothing left but to _exit ourself now too. */
@@ -378,14 +382,8 @@ static void uv__write_int(
 }
 
 
-static void uv__write_errno(
-#ifdef __linux__
-                            volatile int* error_fd
-#else
-                            int error_fd
-#endif
-                            ) {
-  uv__write_int(error_fd, UV__ERR(errno));
+static void uv__write_errno(uv__spawn_errchan_t errchan) {
+  uv__write_int(errchan, UV__ERR(errno));
 }
 
 
@@ -397,11 +395,7 @@ static void uv__write_errno(
  * doesn't even need to be defined for them.
  */
 static void uv__process_child_init(const uv_process_options_t* options,
-#ifdef __linux__
-                                   volatile int* error_fd,
-#else
-                                   int error_fd,
-#endif
+                                   uv__spawn_errchan_t errchan,
                                    int stdio_count,
                                    int (*pipes)[2]) {
   sigset_t signewset;
@@ -432,7 +426,7 @@ static void uv__process_child_init(const uv_process_options_t* options,
     if (SIG_ERR != signal(n, SIG_DFL))
       continue;
 
-    uv__write_errno(error_fd);
+    uv__write_errno(errchan);
   }
 
   if (options->flags & UV_PROCESS_DETACHED)
@@ -452,11 +446,11 @@ static void uv__process_child_init(const uv_process_options_t* options,
     pipes[fd][1] = fcntl(use_fd, F_DUPFD, stdio_count);
 #endif
     if (pipes[fd][1] == -1)
-      uv__write_errno(error_fd);
+      uv__write_errno(errchan);
 #ifndef F_DUPFD_CLOEXEC /* POSIX 2008 */
     n = uv__cloexec(pipes[fd][1], 1);
     if (n)
-      uv__write_int(error_fd, n);
+      uv__write_int(errchan, n);
 #endif
   }
 
@@ -475,7 +469,7 @@ static void uv__process_child_init(const uv_process_options_t* options,
         close_fd = use_fd;
 
         if (use_fd < 0)
-          uv__write_errno(error_fd);
+          uv__write_errno(errchan);
       }
     }
 
@@ -483,7 +477,7 @@ static void uv__process_child_init(const uv_process_options_t* options,
       if (close_fd == -1) {
         n = uv__cloexec(use_fd, 0);
         if (n)
-          uv__write_int(error_fd, n);
+          uv__write_int(errchan, n);
       }
     }
     else {
@@ -491,7 +485,7 @@ static void uv__process_child_init(const uv_process_options_t* options,
     }
 
     if (fd == -1)
-      uv__write_errno(error_fd);
+      uv__write_errno(errchan);
 
     if (fd <= 2 && close_fd == -1)
       uv__nonblock_fcntl(fd, 0);
@@ -501,7 +495,7 @@ static void uv__process_child_init(const uv_process_options_t* options,
   }
 
   if (options->cwd != NULL && chdir(options->cwd))
-    uv__write_errno(error_fd);
+    uv__write_errno(errchan);
 
   if (options->flags & (UV_PROCESS_SETUID | UV_PROCESS_SETGID)) {
     /* When dropping privileges from root, the `setgroups` call will
@@ -515,10 +509,10 @@ static void uv__process_child_init(const uv_process_options_t* options,
   }
 
   if ((options->flags & UV_PROCESS_SETGID) && setgid(options->gid))
-    uv__write_errno(error_fd);
+    uv__write_errno(errchan);
 
   if ((options->flags & UV_PROCESS_SETUID) && setuid(options->uid))
-    uv__write_errno(error_fd);
+    uv__write_errno(errchan);
 
 #if defined(__linux__) || defined(__FreeBSD__)
   if (options->cpumask != NULL) {
@@ -535,11 +529,11 @@ static void uv__process_child_init(const uv_process_options_t* options,
 #if defined(__linux__)
     /* Avoid using pthread calls when using vfork. */
     if (sched_setaffinity(0, sizeof(cpuset), &cpuset))
-      uv__write_errno(error_fd);
+      uv__write_errno(errchan);
 #else
     n = pthread_setaffinity_np(pthread_self(), sizeof(cpuset), &cpuset);
     if (n)
-      uv__write_int(error_fd, UV__ERR(n));
+      uv__write_int(errchan, UV__ERR(n));
 #endif
   }
 #endif
@@ -567,7 +561,7 @@ static void uv__process_child_init(const uv_process_options_t* options,
 #endif
 #endif
 
-  uv__write_errno(error_fd);
+  uv__write_errno(errchan);
 }
 #endif
 
@@ -959,11 +953,8 @@ error:
 #endif
 
 static int uv__spawn_and_init_child_fork(const uv_process_options_t* options,
-#ifdef __linux__
-                                         volatile int* error_fd,
-#else
-                                         int error_fd,
-#endif
+                                         uv__spawn_errchan_t errchan,
+                                         int use_vfork,
                                          int stdio_count,
                                          int (*pipes)[2],
                                          pid_t* pid) {
@@ -985,8 +976,12 @@ static int uv__spawn_and_init_child_fork(const uv_process_options_t* options,
     abort();
 
 #ifdef __linux__
-  *pid = vfork();
+  if (use_vfork)
+    *pid = vfork();
+  else
+    *pid = fork();
 #else
+  (void) use_vfork;
   *pid = fork();
 #endif
 
@@ -994,7 +989,7 @@ static int uv__spawn_and_init_child_fork(const uv_process_options_t* options,
     /* Fork succeeded, in the child process */
     /* After vfork, this shares memory (notably stack) with the parent. The
      * parent is paused until we exec or _exit. */
-    uv__process_child_init(options, error_fd, stdio_count, pipes);
+    uv__process_child_init(options, errchan, stdio_count, pipes);
     abort();
   }
 
@@ -1009,6 +1004,48 @@ static int uv__spawn_and_init_child_fork(const uv_process_options_t* options,
   return 0;
 }
 
+#ifdef __linux__
+static uv_once_t vfork_works_once = UV_ONCE_INIT;
+static volatile int uv__vfork_works;
+
+/* Probe whether vfork() actually shares the address space, i.e. whether a
+ * write by the child before _exit() is visible to the parent once it resumes.
+ * Under QEMU user-mode emulation and WSL1, vfork() degrades to fork(), which
+ * silently loses the child's in-memory error write-back. Probe adapted from
+ * upstream commit 40d45efe ("unix: use posix_spawn instead of fork (#3520)"),
+ * which uses it to gate glibc's equally CLONE_VM-based posix_spawn(). */
+static void uv__vfork_works_init(void) {
+  sigset_t signewset;
+  sigset_t sigoldset;
+  pid_t pid;
+  pid_t r;
+  int status;
+
+  /* Keep signal handlers from running in the child while it shares our
+   * memory. */
+  sigfillset(&signewset);
+  if (pthread_sigmask(SIG_BLOCK, &signewset, &sigoldset) != 0)
+    abort();
+
+  uv__vfork_works = 0;
+  pid = vfork();
+  if (pid == 0) {
+    uv__vfork_works = 1;
+    _exit(0);
+  }
+
+  if (pthread_sigmask(SIG_SETMASK, &sigoldset, NULL) != 0)
+    abort();
+
+  if (pid > 0) {
+    do
+      r = waitpid(pid, &status, 0);
+    while (r == -1 && errno == EINTR);
+  }
+}
+#endif
+
+
 static int uv__spawn_and_init_child(
     uv_loop_t* loop,
     const uv_process_options_t* options,
@@ -1017,13 +1054,13 @@ static int uv__spawn_and_init_child(
     pid_t* pid) {
   int err;
   int status;
-#ifdef __linux__
-  volatile int exec_errorno;
-  int cancelstate;
-#else
   int signal_pipe[2] = { -1, -1 };
   int exec_errorno;
   ssize_t r;
+  uv__spawn_errchan_t errchan;
+#ifdef __linux__
+  volatile int vfork_errorno;
+  int cancelstate;
 #endif
 
 #if defined(__APPLE__)
@@ -1057,31 +1094,43 @@ static int uv__spawn_and_init_child(
 #endif
 
 #ifdef __linux__
-  /* Acquire write lock to prevent opening new fds in worker threads */
-  uv_rwlock_wrlock(&loop->cloexec_lock);
-  pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &cancelstate);
+  /* Prefer vfork(): sharing the parent's address space both avoids copying
+   * the page tables (significant with a large heap) and lets the child report
+   * an exec failure with a plain store. Fall back to the portable pipe
+   * protocol below when vfork() does not actually share memory. */
+  uv_once(&vfork_works_once, uv__vfork_works_init);
+  if (uv__vfork_works) {
+    /* Acquire write lock to prevent opening new fds in worker threads */
+    uv_rwlock_wrlock(&loop->cloexec_lock);
+    pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, &cancelstate);
 
-  exec_errorno = 0;
-  err = uv__spawn_and_init_child_fork(options, &exec_errorno, stdio_count, pipes, pid);
+    vfork_errorno = 0;
+    errchan.addr = &vfork_errorno;
+    errchan.fd = -1;
+    err = uv__spawn_and_init_child_fork(
+        options, errchan, 1, stdio_count, pipes, pid);
 
-  /* Release lock in parent process */
-  pthread_setcancelstate(cancelstate, NULL);
-  uv_rwlock_wrunlock(&loop->cloexec_lock);
+    /* Release lock in parent process */
+    pthread_setcancelstate(cancelstate, NULL);
+    uv_rwlock_wrunlock(&loop->cloexec_lock);
 
-  if (err == 0) {
-    if (exec_errorno == 0)
-      ; /* okay, execv (or abort) */
-    else {
-      /* got errorno from child (and _exit 127) */
-      do
-        err = waitpid(*pid, &status, 0);
-      while (err == -1 && errno == EINTR);
-      assert(err == *pid);
-      err = exec_errorno;
+    if (err == 0) {
+      if (vfork_errorno == 0)
+        ; /* okay, execv (or abort) */
+      else {
+        /* got errorno from child (and _exit 127) */
+        do
+          err = waitpid(*pid, &status, 0);
+        while (err == -1 && errno == EINTR);
+        assert(err == *pid);
+        err = vfork_errorno;
+      }
     }
-  }
 
-#else /* !__linux__ */
+    return err;
+  }
+#endif
+
   /* This pipe is used by the parent to wait until
    * the child has called `execvp()`. We need this
    * to avoid the following race condition:
@@ -1109,7 +1158,10 @@ static int uv__spawn_and_init_child(
   /* Acquire write lock to prevent opening new fds in worker threads */
   uv_rwlock_wrlock(&loop->cloexec_lock);
 
-  err = uv__spawn_and_init_child_fork(options, signal_pipe[1], stdio_count, pipes, pid);
+  errchan.addr = NULL;
+  errchan.fd = signal_pipe[1];
+  err = uv__spawn_and_init_child_fork(
+      options, errchan, 0, stdio_count, pipes, pid);
 
   /* Release lock in parent process */
   uv_rwlock_wrunlock(&loop->cloexec_lock);
@@ -1141,7 +1193,6 @@ static int uv__spawn_and_init_child(
   }
 
   uv__close_nocheckstdio(signal_pipe[0]);
-#endif
 
   return err;
 }
