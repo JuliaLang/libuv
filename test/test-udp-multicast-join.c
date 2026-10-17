@@ -141,6 +141,13 @@ TEST_IMPL(udp_multicast_join) {
   int r;
   struct sockaddr_in addr;
 
+  /* On the macos-15 CI runners, the test hangs, presumably because
+   * there is something blocking UDP traffic to or from 239.255.0.1.
+   */
+#if defined(__APPLE__)
+  RETURN_SKIP("Test does not currently work on this platform");
+#endif
+
   ASSERT(0 == uv_ip4_addr("0.0.0.0", TEST_PORT, &addr));
 
   r = uv_udp_init(uv_default_loop(), &server);

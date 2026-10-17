@@ -172,6 +172,13 @@ TEST_IMPL(udp_multicast_join6) {
   int r;
   struct sockaddr_in6 addr;
 
+  /* On the macos-15 CI runners, the test hangs, presumably because
+   * there is something blocking UDP traffic to or from ff02::1.
+   */
+#if defined(__APPLE__)
+  RETURN_SKIP("Test does not currently work on this platform");
+#endif
+
   if (!can_ipv6_external())
     RETURN_SKIP("No external IPv6 interface available");
 
