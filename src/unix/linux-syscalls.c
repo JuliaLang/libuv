@@ -236,7 +236,18 @@ ssize_t uv__preadv(int fd, const struct iovec *iov, int iovcnt, int64_t offset) 
 #if !defined(__NR_preadv) || defined(__ANDROID_API__) && __ANDROID_API__ < 24
   return errno = ENOSYS, -1;
 #else
-  return syscall(__NR_preadv, fd, iov, iovcnt, (long)offset, (long)(offset >> 32));
+  ssize_t rc;
+  size_t n;
+  int i;
+
+  rc = syscall(__NR_preadv, fd, iov, iovcnt, (long)offset, (long)(offset >> 32));
+  for (i = 0, n = rc > 0 ? rc : 0; i < iovcnt && n > 0; i++) {
+    size_t len = iov[i].iov_len < n ? iov[i].iov_len : n;
+    uv__msan_unpoison(iov[i].iov_base, len);
+    n -= len;
+  }
+
+  return rc;
 #endif
 }
 

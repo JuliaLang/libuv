@@ -1451,6 +1451,13 @@ TEST_IMPL(fs_fstat) {
   struct stat t;
 #endif
 
+#if defined(__s390__) && defined(__QEMU__)
+  /* qemu-user-s390x has this weird bug where statx() reports nanoseconds
+   * but plain fstat() does not.
+   */
+  RETURN_SKIP("Test does not currently work in QEMU");
+#endif
+
   /* Setup. */
   unlink("test_file");
 
