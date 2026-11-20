@@ -138,11 +138,15 @@ static void cl_recv_cb(uv_udp_t* handle,
 
 
 TEST_IMPL(udp_multicast_join) {
-#if defined(__OpenBSD__)
-  RETURN_SKIP("Test does not currently work in OpenBSD");
-#endif
   int r;
   struct sockaddr_in addr;
+
+  /* On the macos-15 CI runners, the test hangs, presumably because
+   * there is something blocking UDP traffic to or from 239.255.0.1.
+   */
+#if defined(__APPLE__) || defined(__OpenBSD__)
+  RETURN_SKIP("Test does not currently work on this platform");
+#endif
 
   ASSERT_OK(uv_ip4_addr("0.0.0.0", TEST_PORT, &addr));
 

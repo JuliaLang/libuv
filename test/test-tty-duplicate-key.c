@@ -187,26 +187,23 @@ TEST_IMPL(tty_duplicate_vt100_fn_key_libuv) {
 
 TEST_IMPL(tty_duplicate_vt100_fn_key_winvt) {
   int r;
-  int ttyin_fd;
+  uv_os_fd_t ttyin_fd;
   uv_tty_t tty_in;
   uv_loop_t* loop;
-  HANDLE handle;
   INPUT_RECORD records[2];
   DWORD written;
 
   loop = uv_default_loop();
 
   /* Make sure we have an FD that refers to a tty */
-  handle = CreateFileA("conin$",
-                       GENERIC_READ | GENERIC_WRITE,
-                       FILE_SHARE_READ | FILE_SHARE_WRITE,
-                       NULL,
-                       OPEN_EXISTING,
-                       FILE_ATTRIBUTE_NORMAL,
-                       NULL);
-  ASSERT_PTR_NE(handle, INVALID_HANDLE_VALUE);
-  ttyin_fd = _open_osfhandle((intptr_t) handle, 0);
-  ASSERT_GE(ttyin_fd, 0);
+  ttyin_fd = CreateFileA("conin$",
+                         GENERIC_READ | GENERIC_WRITE,
+                         FILE_SHARE_READ | FILE_SHARE_WRITE,
+                         NULL,
+                         OPEN_EXISTING,
+                         FILE_ATTRIBUTE_NORMAL,
+                         NULL);
+  ASSERT_PTR_NE(ttyin_fd, INVALID_HANDLE_VALUE);
   ASSERT_EQ(UV_TTY, uv_guess_handle(ttyin_fd));
 
   r = uv_tty_init(uv_default_loop(), &tty_in, ttyin_fd, 1);  /* Readable. */
@@ -232,7 +229,7 @@ TEST_IMPL(tty_duplicate_vt100_fn_key_winvt) {
    * Send F1 keystroke.
    */
   make_key_event_records(VK_F1, 0, TRUE, records);
-  WriteConsoleInputW(handle, records, ARRAY_SIZE(records), &written);
+  WriteConsoleInputW(ttyin_fd, records, ARRAY_SIZE(records), &written);
   ASSERT_EQ(written, ARRAY_SIZE(records));
 
   uv_run(loop, UV_RUN_DEFAULT);
