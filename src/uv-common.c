@@ -128,9 +128,9 @@ void uv_os_free_passwd(uv_passwd_t* pwd) {
   if (pwd == NULL)
     return;
 
-  /* On unix, the memory for name, shell, and homedir are allocated in a single
-   * uv__malloc() call. The base of the pointer is stored in pwd->username, so
-   * that is the field that needs to be freed.
+  /* On unix, the memory for name, shell, homedir, and gecos are allocated in
+   * a single uv__malloc() call. The base of the pointer is stored in
+   * pwd->username, so that is the field that needs to be freed.
    */
   uv__free(pwd->username);
 #ifdef _WIN32
@@ -139,6 +139,7 @@ void uv_os_free_passwd(uv_passwd_t* pwd) {
   pwd->username = NULL;
   pwd->shell = NULL;
   pwd->homedir = NULL;
+  pwd->gecos = NULL;
 }
 
 
