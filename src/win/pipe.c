@@ -1816,7 +1816,13 @@ static int uv__pipe_write_data(uv_loop_t* loop,
     }
 
     if (handle->flags & UV_HANDLE_EMULATE_IOCP) {
-      if (!RegisterWaitForSingleObject(&req->wait_handle,
+      if (result && handle->write_queue_size == 0) {
+        /* The tagged event keeps the completion off any port, so a write that
+         * finished synchronously can be completed right away instead of on a
+         * wait thread. Only do so when no earlier write is still waiting for
+         * its completion to be posted, so that callbacks stay in order. */
+        uv__insert_pending_req(loop, (uv_req_t*) req);
+      } else if (!RegisterWaitForSingleObject(&req->wait_handle,
           req->event_handle, post_completion_write_wait, (void*) req,
           INFINITE, WT_EXECUTEINWAITTHREAD)) {
         return GetLastError();
